@@ -531,11 +531,12 @@ class ClosableSSEClient(SSEClient):
 
 
 class Stream:
-    def __init__(self, url, stream_handler, build_headers, stream_id):
+    def __init__(self, url, stream_handler, build_headers, stream_id, timeout=35):
         self.build_headers = build_headers
         self.url = url
         self.stream_handler = stream_handler
         self.stream_id = stream_id
+        self.timeout = timeout
         self.sse = None
         self.thread = None
         self.start()
@@ -553,14 +554,19 @@ class Stream:
         return self
 
     def start_stream(self):
-        self.sse = ClosableSSEClient(self.url, session=self.make_session(), build_headers=self.build_headers)
-        for msg in self.sse:
-            if msg:
-                msg_data = json.loads(msg.data)
-                msg_data["event"] = msg.event
-                if self.stream_id:
-                    msg_data["stream_id"] = self.stream_id
-                self.stream_handler(msg_data)
+        self.sse = ClosableSSEClient(self.url, session=self.make_session(), build_headers=self.build_headers, timeout=self.timeout)
+        try:
+            for msg in self.sse:
+                if msg:
+                    msg_data = json.loads(msg.data)
+                    msg_data["event"] = msg.event
+                    if self.stream_id:
+                        msg_data["stream_id"] = self.stream_id
+                    self.stream_handler(msg_data)
+        except requests.exceptions.ConnectionError:
+            time.sleep(self.timeout)
+            self.close()
+            self.start()
 
     def close(self):
         while not self.sse and not hasattr(self.sse, 'resp'):
